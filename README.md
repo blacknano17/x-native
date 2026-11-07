@@ -1,6 +1,6 @@
 # 🚀 X-Native — Enterprise Fullstack Web & Dashboard Framework
 
-**X-Native** adalah framework fullstack web dan dashboard enterprise berbasis engine **SIMA (Fat-Free Core)** yang telah dimodernisasi penuh untuk **PHP 8.4+**.
+**X-Native** adalah framework fullstack web dan dashboard enterprise berbasis engine **XSM (Fat-Free Core)** yang telah dimodernisasi penuh untuk **PHP 8.4+**.
 
 Jika **M-Native** didedikasikan untuk headless REST API berkecepatan tinggi, **X-Native** dirancang khusus untuk **aplikasi web fullstack, portal admin, dashboard analitik, dan sistem ERP enterprise**. Framework ini memadukan kesederhanaan *server-side rendering* modern (Tailwind CSS + Alpine.js), keamanan ketat (Session Hardening + CSRF Shield), **koneksi multi-database simultan dalam satu transaksi**, dan **alat bantu CLI otomatis**.
 
