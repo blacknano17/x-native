@@ -1,0 +1,16 @@
+# Nonaktifkan eksekusi script PHP di folder uploads
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# Blokir langsung akses ke semua ekstensi file script / executable
+<FilesMatch "(?i)\.(php|phtml|php3|php4|php5|php7|php8|phps|phar|exe|pl|cgi|py|sh|bat|cmd)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>

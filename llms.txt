@@ -1,0 +1,90 @@
+# X-Native Framework — LLM Context & Architecture Specification
+
+> **Target Audience**: AI Coding Assistants, LLMs, Code Interpreters, and Automated Code Generators.
+> **Language & Runtime**: PHP 8.4+, Fat-Free Core (Engine SIMA), MySQL 8.x / MariaDB, Tailwind CSS + Alpine.js.
+
+---
+
+## 1. System Overview & Core Philosophy
+
+**X-Native** is an enterprise fullstack web and dashboard framework designed for high-concurrency business applications. It eliminates heavy framework overhead (no node_modules, no vendor bloat) while providing enterprise features:
+- **Footprint**: ~1.5 MB RAM per request, 2-5ms execution time.
+- **Architecture**: MVC + Service/Logic Layer (`sys-controller/` -> `sys-api/` -> `lib/Dbconfig5.php` / `lib/Database.php` -> `sys-view/`).
+- **UI Engine**: Server-Side Rendered (SSR) HTML with master layouts (`AppView`), styled by Tailwind CSS and orchestrated reactively via Alpine.js.
+
+---
+
+## 2. Directory Layout & Roles
+
+```text
+x-native/
+├── cli                             # Scaffolding tool: php cli make:module <Name>
+├── index.php                       # Application entrypoint & security bootstrapping
+├── .env                            # Secret environment variables (Multi-DB credentials)
+├── route/
+│   └── route.ini                   # Fat-Free route mapping (GET /path = Controller->method)
+├── lib/
+│   ├── AppView.php                 # Layout renderer ($this->render($view, $data, $layout))
+│   ├── Csrf.php                    # Csrf::field(), Csrf::token(), Csrf::verify()
+│   ├── Csv.php                     # Csv::export($filename, $headers, $rows)
+│   ├── Database.php                # Database::connection($name = 'default')
+│   ├── Dbconfig5.php               # Prepared statement query executor (atomic transactions)
+│   ├── Session.php                 # Session::get(), Session::set(), Session::destroy()
+│   └── Uploader.php                # Uploader::upload($_FILES['file']) with Magic Bytes
+├── middleware/
+│   ├── AuthWebMiddleware.php       # Enforces login state & role checks
+│   └── CsrfMiddleware.php          # Intercepts POST/PUT/DELETE, validates CSRF token (HTTP 419)
+├── sys-api/                        # Business Logic and Multi-Database query services
+│   └── mainApi.php                 # Base class providing $this->dbc (Primary DB connection)
+├── sys-controller/                 # Web presentation controllers
+│   └── webController.php           # Base class providing requireAuth(), render(), redirect(), db()
+└── sys-view/                       # Views & Layouts
+    ├── layouts/
+    │   ├── app.php                 # Master dashboard layout (sidebar, header, flash toast)
+    │   └── auth.php                # Unauthenticated layout (login/register)
+    └── pages/                      # Page content views injected into layouts
+```
+
+---
+
+## 3. Mandatory AI Rules & Coding Standards
+
+When generating code for **X-Native**, you MUST strictly adhere to the following rules:
+
+### Rule 1: Controller Inheritance & Base Methods
+- All web controllers MUST reside in `sys-controller/` and extend `webController`.
+- Do NOT declare static routes inside controllers; route binding belongs exclusively to `route/route.ini`.
+- Use `$this->requireAuth()` at the top of controller actions requiring authentication.
+- Use `$this->requireRole('role1', 'role2')` for role-based authorization.
+- Use `$this->render('pages/view_path.php', $dataArray, $layout = 'app')` to output views.
+- Use `$this->redirect($url, $flashMessage, $flashType = 'success|error|warning|info')` for user feedback.
+
+### Rule 2: Multi-Database Query Syntax
+- Primary Database: `$this->db()` or `$this->dbc` in `mainApi`.
+- Secondary Database: `$this->db('logistik')` or `Database::connection('logistik')`.
+- Tertiary Database: `$this->db('report')` or `Database::connection('report')`.
+- Always use prepared statements with placeholders `?`. Never interpolate user input into SQL strings!
+
+### Rule 3: CSRF & Form Security
+- All HTML `<form method="POST">` MUST include `<?= Csrf::field() ?>`.
+- All AJAX/Fetch POST requests MUST include header `'X-CSRF-TOKEN': '<?= Csrf::token() ?>'`.
+- `CsrfMiddleware` will automatically reject missing or invalid tokens with HTTP 419.
+
+### Rule 4: PHP 8.4 Strict Compatibility
+- Never use deprecated dynamic property creation. Declare properties explicitly or use `#[\AllowDynamicProperties]` if dynamic properties are necessary.
+- Do NOT use PHP 4-style constructors (method name identical to class name). Always use `public function __construct()`.
+- Use explicit type hints for method parameters and returns wherever possible.
+
+---
+
+## 4. CLI Scaffolding Reference
+
+When users ask to create a new module, suggest or use the built-in CLI:
+```bash
+php cli make:module <ModuleName>
+```
+This automatically produces:
+1. `sys-api/<ModuleName>Api.php`
+2. `sys-controller/<ModuleName>Controller.php`
+3. `sys-view/pages/<modulename>/index.php`
+4. Registers routes in `route/route.ini`

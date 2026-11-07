@@ -1,0 +1,277 @@
+<?php
+#!/usr/bin/env php
+/**
+ * X-Native Enterprise CLI Tool
+ * Jalankan: php cli [command] [arguments]
+ */
+
+if (PHP_SAPI !== 'cli') {
+    die("Hanya bisa dijalankan via CLI / Terminal.\n");
+}
+
+require_once __DIR__ . '/lib/Env.php';
+Env::load(__DIR__ . '/.env');
+
+require_once __DIR__ . '/lib/core.php';
+$core = Core::instance();
+$core->config(__DIR__ . '/config/config.ini');
+
+$argv = $_SERVER['argv'];
+$command = $argv[1] ?? 'list';
+$arg1 = $argv[2] ?? null;
+
+echo "\n\033[36m===================================================\033[0m\n";
+echo "\033[1;36m  X-NATIVE ENTERPRISE CLI TOOL\033[0m\n";
+echo "\033[36m===================================================\033[0m\n";
+
+switch ($command) {
+    case 'list':
+    case 'help':
+        echo "Daftar Perintah yang Tersedia:\n\n";
+        echo "  \033[32mmake:module <Nama>\033[0m     Buat 1 modul utuh (sys-api + sys-controller + sys-view + route)\n";
+        echo "  \033[32mmake:api <Nama>\033[0m        Buat class logic di sys-api/\n";
+        echo "  \033[32mmake:controller <Nama>\033[0m Buat class controller di sys-controller/\n";
+        echo "  \033[32mdb:test\033[0m                Uji status seluruh koneksi multi-database di .env\n";
+        echo "  \033[32mdb:migrate\033[0m             Jalankan migrasi tabel database starter (users, dll)\n";
+        echo "\nContoh: php cli make:module Customer\n\n";
+        break;
+
+    case 'db:test':
+        echo "Menguji Pool Koneksi Multi-Database...\n\n";
+        $list = Database::listConfigured();
+        foreach ($list as $alias) {
+            $res = Database::testConnection($alias);
+            $isOk = ($res['status'] === 'connected');
+            $statusStr = $isOk ? "\033[32m[CONNECTED]\033[0m" : "\033[31m[DISCONNECTED]\033[0m";
+            $latency = $res['latency_ms'] !== null ? "{$res['latency_ms']} ms" : "N/A";
+            
+            echo sprintf("  %-12s : %s | DB: %-15s | Latency: %s\n", $alias, $statusStr, $res['database'], $latency);
+            if (!$isOk && $res['error']) {
+                echo "    \033[33mError: " . substr($res['error'], 0, 70) . "...\033[0m\n";
+            }
+        }
+        echo "\n";
+        break;
+
+    case 'db:migrate':
+        echo "Menjalankan migrasi tabel starter (users, roles) ke Database Default...\n";
+        $sqlFile = __DIR__ . '/schema.sql';
+        if (!file_exists($sqlFile)) {
+            echo "\033[31mFile schema.sql tidak ditemukan.\033[0m\n";
+            exit(1);
+        }
+        $sql = file_get_contents($sqlFile);
+        try {
+            $dbc = Database::connection('default');
+            // Eksekusi query per statement
+            $statements = array_filter(array_map('trim', explode(';', $sql)));
+            foreach ($statements as $stmt) {
+                if (!empty($stmt)) {
+                    $dbc->insert($stmt . ';');
+                }
+            }
+            echo "\033[32mMigrasi berhasil dijalankan ke database: " . Database::getConfig('default')['database'] . "!\033[0m\n\n";
+        } catch (Exception $e) {
+            echo "\033[31mGagal migrasi: " . $e->getMessage() . "\033[0m\n\n";
+        }
+        break;
+
+    case 'make:module':
+        if (!$arg1) {
+            echo "\033[31mError: Nama modul wajib diisi. Contoh: php cli make:module Customer\033[0m\n\n";
+            exit(1);
+        }
+
+        $name = ucfirst($arg1);
+        $slug = strtolower($arg1);
+
+        echo "Membuat Modul Enterprise: \033[33m$name\033[0m\n";
+
+        // 1. Buat sys-api/<Name>Api.php
+        $apiFile = __DIR__ . "/sys-api/{$name}Api.php";
+        if (!file_exists($apiFile)) {
+            $apiContent = <<<PHP
+<?php
+
+class {$name}Api extends mainApi
+{
+    /**
+     * Logic: Ambil daftar data {$name}
+     */
+    public function getList()
+    {
+        // Query Database Utama:
+        // return \$this->dbc->fetchObject("SELECT * FROM {$slug}s ORDER BY id DESC LIMIT 50");
+
+        // Mock data starter:
+        return [
+            ['id' => 1, 'name' => 'Contoh {$name} A', 'status' => 'Aktif', 'created_at' => date('Y-m-d H:i:s')],
+            ['id' => 2, 'name' => 'Contoh {$name} B', 'status' => 'Pending', 'created_at' => date('Y-m-d H:i:s')]
+        ];
+    }
+
+    /**
+     * Logic: Simpan data baru {$name}
+     */
+    public function createItem(array \$data)
+    {
+        // \$this->dbc->beginTransaction();
+        // \$id = \$this->dbc->insert("INSERT INTO {$slug}s (name, status) VALUES (?, ?)", [\$data['name'], \$data['status']]);
+        // \$this->dbc->commit();
+        return ['id' => rand(10, 99), 'name' => \$data['name']];
+    }
+
+    /**
+     * Endpoint API JSON: GET /api/{$slug}
+     */
+    public function apiList(\$core)
+    {
+        \$data = \$this->getList();
+        \$this->success(\$data, 'Data {$slug} berhasil diambil.');
+    }
+}
+PHP;
+            file_put_contents($apiFile, $apiContent);
+            echo "  \033[32m✔ Dibuat:\033[0m sys-api/{$name}Api.php\n";
+        }
+
+        // 2. Buat sys-controller/<Name>Controller.php
+        $controllerFile = __DIR__ . "/sys-controller/{$name}Controller.php";
+        if (!file_exists($controllerFile)) {
+            $controllerContent = <<<PHP
+<?php
+
+class {$name}Controller extends webController
+{
+    /**
+     * Halaman List {$name}
+     * GET /{$slug}
+     */
+    public function index(\$core)
+    {
+        \$user = \$this->requireAuth();
+
+        // Panggil logic bisnis dari sys-api/{$name}Api
+        \$api = new {$name}Api();
+        \$items = \$api->getList();
+
+        \$this->render('pages/{$slug}/index.php', [
+            'pageTitle' => 'Manajemen {$name}',
+            'user'      => \$user,
+            'items'     => \$items
+        ], 'app');
+    }
+
+    /**
+     * Simpan {$name} Baru
+     * POST /{$slug}/create
+     */
+    public function store(\$core)
+    {
+        \$this->requireAuth();
+
+        \$input = \$this->validate([
+            'name' => 'required|string|min:3'
+        ]);
+
+        \$api = new {$name}Api();
+        \$api->createItem(\$input);
+
+        \$this->redirect('/{$slug}', '{$name} berhasil ditambahkan!', 'success');
+    }
+}
+PHP;
+            file_put_contents($controllerFile, $controllerContent);
+            echo "  \033[32m✔ Dibuat:\033[0m sys-controller/{$name}Controller.php\n";
+        }
+
+        // 3. Buat Folder & File View sys-view/pages/<slug>/index.php
+        $viewDir = __DIR__ . "/sys-view/pages/{$slug}";
+        if (!is_dir($viewDir)) {
+            @mkdir($viewDir, 0755, true);
+        }
+        $viewFile = $viewDir . "/index.php";
+        if (!file_exists($viewFile)) {
+            $viewContent = <<<HTML
+<div x-data="{ modalOpen: false, search: '' }">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-white tracking-tight">Manajemen {$name}</h1>
+            <p class="text-xs text-slate-400 mt-1">Kelola data {$slug} perusahaan</p>
+        </div>
+        <button @click="modalOpen = true" class="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-semibold text-white shadow-lg shadow-sky-500/20 transition">
+            + Tambah {$name}
+        </button>
+    </div>
+
+    <div class="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-xl">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-300">
+                <thead class="bg-slate-950/60 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-800">
+                    <tr>
+                        <th class="px-6 py-3.5">ID</th>
+                        <th class="px-6 py-3.5">Nama {$name}</th>
+                        <th class="px-6 py-3.5">Status</th>
+                        <th class="px-6 py-3.5">Waktu</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-sans">
+                    <?php if (empty(\$items)): ?>
+                        <tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Belum ada data {$slug}.</td></tr>
+                    <?php else: ?>
+                        <?php foreach (\$items as \$item): ?>
+                            <tr class="hover:bg-slate-800/30 transition">
+                                <td class="px-6 py-4 font-mono text-white">#<?= \$item['id'] ?></td>
+                                <td class="px-6 py-4 font-semibold text-slate-200"><?= htmlspecialchars(\$item['name']) ?></td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        <?= htmlspecialchars(\$item['status']) ?>
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 text-slate-400"><?= htmlspecialchars(\$item['created_at']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Tambah -->
+    <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        <div @click.away="modalOpen = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h3 class="text-base font-bold text-white mb-4 pb-2 border-b border-slate-800">Tambah {$name} Baru</h3>
+            <form method="POST" action="<?= \$baseUrl ?>{$slug}/create" class="space-y-4">
+                <?= Csrf::field() ?>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Nama {$name}</label>
+                    <input type="text" name="name" required placeholder="Contoh {$name}..." class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white">
+                </div>
+                <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" @click="modalOpen = false" class="px-4 py-2 rounded-xl bg-slate-800 text-xs font-medium text-slate-300">Batal</button>
+                    <button type="submit" class="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-semibold text-white">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+HTML;
+            file_put_contents($viewFile, $viewContent);
+            echo "  \033[32m✔ Dibuat:\033[0m sys-view/pages/{$slug}/index.php\n";
+        }
+
+        // 4. Daftarkan otomatis ke route/route.ini
+        $routeFile = __DIR__ . '/route/route.ini';
+        $routeAddition = "\n;-- Modul {$name} --\nGET /{$slug}={$name}Controller->index\nPOST /{$slug}/create={$name}Controller->store\nGET /api/{$slug}={$name}Api->apiList\n";
+        file_put_contents($routeFile, $routeAddition, FILE_APPEND | LOCK_EX);
+        echo "  \033[32m✔ Ditambahkan ke Route:\033[0m /{$slug} dan /api/{$slug}\n\n";
+
+        echo "\033[32mModul $name selesai dibuat dan langsung siap digunakan!\033[0m\n";
+        echo "Akses di browser: \033[36m" . Env::get('APP_URL') . "{$slug}\033[0m\n\n";
+        break;
+
+    default:
+        echo "\033[31mPerintah tidak dikenali: $command\033[0m\n";
+        echo "Ketik \033[33mphp cli list\033[0m untuk melihat daftar perintah.\n\n";
+        break;
+}
